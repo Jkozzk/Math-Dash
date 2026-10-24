@@ -95,6 +95,7 @@ window.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(state=
 window.addEventListener('keyup',e=>setKey(e,false));window.addEventListener('blur',()=>{input.left=input.right=input.jump=input.duck=false});
 document.querySelectorAll('[data-control]').forEach(b=>{const k=b.dataset.control,press=e=>{e.preventDefault();b.classList.add('pressed');if(k==='jump'){if(state==='running'&&player.onGround){player.vy=-CFG.jump;player.onGround=false;setFace('jump')}input.jump=true}else input[k]=true},release=e=>{e.preventDefault();b.classList.remove('pressed');if(k==='jump')input.jump=false;else input[k]=false};b.addEventListener('pointerdown',press);b.addEventListener('pointerup',release);b.addEventListener('pointercancel',release);b.addEventListener('lostpointercapture',release)});
 /* LEVEL GENERATION */
+function spawnLead(){return Math.max(W+240,760)}
 function makeQuestion(){let d=run.distance,a,b,op,ans,txt;
 if(d<500){a=1+Math.floor(rand()*9);b=1+Math.floor(rand()*9);op=rand()<.52?'+':'−';if(op==='−'&&a<b)[a,b]=[b,a];ans=op==='+'?a+b:a-b}
 else if(d<1500){if(rand()<.65){a=2+Math.floor(rand()*9);b=2+Math.floor(rand()*9);op='×';ans=a*b}else{b=2+Math.floor(rand()*9);ans=2+Math.floor(rand()*10);a=b*ans;op='÷'}}
@@ -107,7 +108,7 @@ const roll=rand();if(roll<.22){world.push({type:'gap',x,width:105+rand()*80})}el
 if(run.distance>100&&run.distance-run.lastAnswer>CFG.answerEvery){addAnswer(x+280);run.lastAnswer=run.distance}
 nextSpawn+=260+rand()*250}
 function makeBossQuestion(){if(!run.boss)return;let a=3+Math.floor(rand()*9),b=3+Math.floor(rand()*9),c=2+Math.floor(rand()*8),plus=rand()<.5;run.boss.answers=[a*b+(plus?c:-c),a*b+(plus?-c:c)];run.boss.text=`${a} × ${b} ${plus?'+':'−'} ${c}`;run.boss.correct=run.boss.answers[0];run.boss.wrong=0;run.boss.scale=1}
-function resetWorld(){world=[];nextSpawn=480;run.worldX=0;run.distance=0;run.score=0;run.correct=0;run.bonus=0;run.speed=CFG.baseSpeed;run.answer=null;run.lastAnswer=0;run.bossAt=2000;run.boss=null;run.attempts=3;run.slow=run.hint=run.flash=run.crash=run.ripple=0;run.elapsed=0;seed=7;for(let x=600;x<2200;x+=330){world.push({type:'groundmark',x,width:30})}player.x=W*CFG.playerX;player.y=groundY()-player.h;player.vx=player.vy=0;player.face=player.oldFace='neutral';player.faceMix=1;player.onGround=true;player.duck=false;player.supportY=groundY()}
+function resetWorld(){world=[];nextSpawn=spawnLead()+480;run.worldX=0;run.distance=0;run.score=0;run.correct=0;run.bonus=0;run.speed=CFG.baseSpeed;run.answer=null;run.lastAnswer=0;run.bossAt=2000;run.boss=null;run.attempts=3;run.slow=run.hint=run.flash=run.crash=run.ripple=0;run.elapsed=0;seed=7;for(let x=600;x<2200;x+=330){world.push({type:'groundmark',x,width:30})}player.x=W*CFG.playerX;player.y=groundY()-player.h;player.vx=player.vy=0;player.face=player.oldFace='neutral';player.faceMix=1;player.onGround=true;player.duck=false;player.supportY=groundY()}
 /* PHYSICS AND COLLISION */
  function startGame(){cancelAnimationFrame(raf);resetWorld();state='running';stage.classList.remove('is-idle','is-over');$('overlay').classList.add('hidden');$('question').classList.remove('show');last=performance.now();raf=requestAnimationFrame(loop)}
 function setFace(f){if(player.face===f)return;player.oldFace=player.face;player.face=f;player.faceMix=0}
@@ -152,7 +153,7 @@ const oldH=player.duck?25:player.h,feet=player.y+oldH;player.duck=input.duck;if(
 if(input.jump&&!player.jumpWasDown&&player.onGround){player.vy=-CFG.jump;player.onGround=false;setFace('jump')}player.jumpWasDown=input.jump;
 if(input.jump&&player.vy<0)player.vy-=CFG.gravity*.48*dt;
 const previousBottom=player.y+bodyH;player.vy+=CFG.gravity*dt;player.y+=player.vy*dt;player.onGround=false;
-run.worldX+=run.speed*dt;run.distance=Math.floor(run.worldX/6);run.score=run.distance+run.correct*10+run.bonus;if(run.worldX>=nextSpawn-220)spawn();world=world.filter(o=>o.x-run.worldX>-150);world.forEach(o=>{if(o.type==='answer'){o.platformY=groundY()-28;if(!o.done)o.fade=Math.min(1,o.fade+dt*2)}});collision(previousBottom);run.score=run.distance+run.correct*10+run.bonus;
+run.worldX+=run.speed*dt;run.distance=Math.floor(run.worldX/6);run.score=run.distance+run.correct*10+run.bonus;while(run.worldX>=nextSpawn-spawnLead())spawn();world=world.filter(o=>o.x-run.worldX>-150);world.forEach(o=>{if(o.type==='answer'){o.platformY=groundY()-28;if(!o.done)o.fade=Math.min(1,o.fade+dt*2)}});collision(previousBottom);run.score=run.distance+run.correct*10+run.bonus;
 if(run.answer&&!run.answer.done){$('question').classList.add('show');$('questionText').textContent=run.answer.question}else{$('question').classList.remove('show')}
 if(run.boss&&!world.some(o=>o.type==='boss'&&!o.cleared))run.boss=null
 updateHud()}
