@@ -76,7 +76,7 @@ import { MOVEMENT_LIMITS, isOverGap, shouldLandOnGround, losesGroundSupportAtGap
 (()=>{'use strict';
 const canvas=document.getElementById('game'),ctx=canvas.getContext('2d'),stage=document.querySelector('.stage');
 const $=id=>document.getElementById(id);
-const CFG={gravity:1750,jump:630,baseSpeed:MOVEMENT_LIMITS.baseScrollSpeed,playerX:.22,playerW:30,playerH:42,runAccel:1050,friction:1250,maxRunSpeed:MOVEMENT_LIMITS.maxRunSpeed,answerEvery:490};
+const CFG={gravity:1750,jump:630,jumpBuffer:.14,coyoteTime:.1,baseSpeed:MOVEMENT_LIMITS.baseScrollSpeed,playerX:.22,playerW:30,playerH:42,runAccel:1050,friction:1250,maxRunSpeed:MOVEMENT_LIMITS.maxRunSpeed,answerEvery:490};
 const palettes=[{sky:'#e9dfca',far:'#d6c6a8',ground:'#303431',accent:'#e76e51',block:'#f8f3e9',ink:'#282c2b'},
 {sky:'#aab6bd',far:'#899aa2',ground:'#343e43',accent:'#e9a66c',block:'#e6e7df',ink:'#30393c'},
 {sky:'#182d38',far:'#274954',ground:'#13282e',accent:'#75c6b1',block:'#d3e5dc',ink:'#172c32'}];
@@ -84,6 +84,7 @@ let W=900,H=460,dpr=1,state='title',last=0,raf=0,world=[],nextSpawn=500,seed=7;
 let player={x:0,y:0,vx:0,vy:0,w:30,h:42,onGround:false,duck:false,face:'neutral',oldFace:'neutral',faceMix:1,supportY:0};
 let run={distance:0,score:0,best:0,correct:0,bonus:0,speed:CFG.baseSpeed,worldX:0,answer:null,answerCooldown:0,bossAt:2000,boss:null,attempts:3,slow:0,hint:0,flash:0,crash:0,ripple:0,elapsed:0};
 const input={left:false,right:false,jump:false,duck:false};
+let jumpBuffer=0,coyoteTime=0;
 try{run.best=Number(localStorage.getItem('mathDashBest'))||0}catch(_){run.best=0}
 function rand(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
@@ -91,10 +92,12 @@ function resize(){const r=stage.getBoundingClientRect();dpr=Math.min(devicePixel
 new ResizeObserver(resize).observe(stage);
 function groundY(){return H*.79}
 /* INPUT */
-function setKey(e,on){let k=e.key.toLowerCase();if(['arrowleft','arrowright','arrowdown',' ','arrowup'].includes(k))e.preventDefault();if(k==='arrowleft'||k==='a')input.left=on;if(k==='arrowright'||k==='d')input.right=on;if(k==='arrowdown'||k==='s')input.duck=on;if(k===' '||k==='arrowup'||k==='w'){if(on&&!input.jump&&state==='running'&&player.onGround){player.vy=-CFG.jump;player.onGround=false;setFace('jump')}input.jump=on}}
-window.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(state==='title'||state==='over')){if(e.target.tagName!=='BUTTON')startGame();return}setKey(e,true)});
-window.addEventListener('keyup',e=>setKey(e,false));window.addEventListener('blur',()=>{input.left=input.right=input.jump=input.duck=false});
-document.querySelectorAll('[data-control]').forEach(b=>{const k=b.dataset.control,press=e=>{e.preventDefault();b.classList.add('pressed');if(k==='jump'){if(state==='running'&&player.onGround){player.vy=-CFG.jump;player.onGround=false;setFace('jump')}input.jump=true}else input[k]=true},release=e=>{e.preventDefault();b.classList.remove('pressed');if(k==='jump')input.jump=false;else input[k]=false};b.addEventListener('pointerdown',press);b.addEventListener('pointerup',release);b.addEventListener('pointercancel',release);b.addEventListener('lostpointercapture',release)});
+function performJump(){if(state!=='running')return false;player.vy=-CFG.jump;player.onGround=false;jumpBuffer=0;coyoteTime=0;setFace('jump');return true}
+function queueJump(){if(state!=='running')return;jumpBuffer=CFG.jumpBuffer;if(player.onGround||coyoteTime>0)performJump()}
+function setKey(e,on){const k=(e.key||'').toLowerCase(),jumpKey=k===' '||e.code==='Space'||k==='arrowup'||k==='w';if(['arrowleft','arrowright','arrowdown'].includes(k)||jumpKey)e.preventDefault();if(k==='arrowleft'||k==='a')input.left=on;if(k==='arrowright'||k==='d')input.right=on;if(k==='arrowdown'||k==='s')input.duck=on;if(jumpKey){if(on&&!input.jump)queueJump();input.jump=on}}
+window.addEventListener('keydown',e=>{const isSpace=e.code==='Space'||e.key===' ';if((e.key==='Enter'||isSpace)&&(state==='title'||state==='over')){if(e.repeat)return;if(e.target.tagName!=='BUTTON'){if(isSpace)e.preventDefault();startGame()}return}setKey(e,true)});
+window.addEventListener('keyup',e=>setKey(e,false));window.addEventListener('blur',()=>{input.left=input.right=input.jump=input.duck=false;jumpBuffer=0;coyoteTime=0});
+document.querySelectorAll('[data-control]').forEach(b=>{const k=b.dataset.control,press=e=>{e.preventDefault();b.classList.add('pressed');if(k==='jump'){if(!input.jump)queueJump();input.jump=true}else input[k]=true},release=e=>{e.preventDefault();b.classList.remove('pressed');if(k==='jump')input.jump=false;else input[k]=false};b.addEventListener('pointerdown',press);b.addEventListener('pointerup',release);b.addEventListener('pointercancel',release);b.addEventListener('lostpointercapture',release)});
 /* LEVEL GENERATION */
 function spawnLead(){return Math.max(W+240,760)}
 function answerMetrics(o){
@@ -115,7 +118,7 @@ nextSpawn+=260+rand()*250}
 function makeBossQuestion(){if(!run.boss)return;let a=3+Math.floor(rand()*9),b=3+Math.floor(rand()*9),c=2+Math.floor(rand()*8),plus=rand()<.5;run.boss.answers=[a*b+(plus?c:-c),a*b+(plus?-c:c)];run.boss.text=`${a} × ${b} ${plus?'+':'−'} ${c}`;run.boss.correct=run.boss.answers[0];run.boss.wrong=0;run.boss.scale=1}
 function resetWorld(){world=[];nextSpawn=spawnLead()+480;run.worldX=0;run.distance=0;run.score=0;run.correct=0;run.bonus=0;run.speed=CFG.baseSpeed;run.answer=null;run.lastAnswer=0;run.bossAt=2000;run.boss=null;run.attempts=3;run.slow=run.hint=run.flash=run.crash=run.ripple=0;run.elapsed=0;seed=7;for(let x=600;x<2200;x+=330){world.push({type:'groundmark',x,width:30})}player.x=W*CFG.playerX;player.y=groundY()-player.h;player.vx=player.vy=0;player.face=player.oldFace='neutral';player.faceMix=1;player.onGround=true;player.duck=false;player.supportY=groundY()}
 /* PHYSICS AND COLLISION */
- function startGame(){cancelAnimationFrame(raf);resetWorld();state='running';stage.classList.remove('is-idle','is-over');$('overlay').classList.add('hidden');$('question').classList.remove('show');last=performance.now();raf=requestAnimationFrame(loop)}
+ function startGame(){cancelAnimationFrame(raf);input.left=input.right=input.jump=input.duck=false;jumpBuffer=0;coyoteTime=0;resetWorld();state='running';stage.classList.remove('is-idle','is-over');$('overlay').classList.add('hidden');$('question').classList.remove('show');last=performance.now();raf=requestAnimationFrame(loop)}
 function setFace(f){if(player.face===f)return;player.oldFace=player.face;player.face=f;player.faceMix=0}
 function die(){if(state!=='running')return;state='over';run.crash=.45;setFace('crash');saveBest();$('question').classList.remove('show');$('announcement').textContent='Run ended. Score '+run.score;showEnd();if(run.crash>0){last=performance.now();raf=requestAnimationFrame(loop)}}
 function saveBest(){if(run.score>run.best){run.best=run.score;try{localStorage.setItem('mathDashBest',String(run.best))}catch(_){}}}
@@ -184,7 +187,7 @@ function saveBest(){if(run.score>run.best){run.best=run.score;try{localStorage.s
 const direction=(input.right?1:0)-(input.left?1:0);if(direction)player.vx=clamp(player.vx+direction*CFG.runAccel*dt,-CFG.maxRunSpeed,CFG.maxRunSpeed);else if(player.vx!==0){const reduction=CFG.friction*dt;player.vx=Math.abs(player.vx)<=reduction?0:player.vx-Math.sign(player.vx)*reduction}
 player.x=clamp(player.x+player.vx*dt,18,W*.48);if(player.x<=18||player.x>=W*.48)player.vx=0;
 const oldH=player.duck?25:player.h,feet=player.y+oldH;player.duck=input.duck;if(player.duck)setFace('duck');else if(player.face==='duck')setFace('neutral');const bodyH=player.duck?25:player.h;player.y=feet-bodyH;const previousY=player.y;
-if(input.jump&&!player.jumpWasDown&&player.onGround){player.vy=-CFG.jump;player.onGround=false;setFace('jump')}player.jumpWasDown=input.jump;
+ if(player.onGround)coyoteTime=CFG.coyoteTime;else coyoteTime=Math.max(0,coyoteTime-dt);jumpBuffer=Math.max(0,jumpBuffer-dt);if(jumpBuffer>0&&(player.onGround||coyoteTime>0))performJump();
 if(input.jump&&player.vy<0)player.vy-=CFG.gravity*.48*dt;
 const previousBottom=player.y+bodyH;player.vy+=CFG.gravity*dt;player.y+=player.vy*dt;player.onGround=false;
 run.worldX+=run.speed*dt;run.distance=Math.floor(run.worldX/6);run.score=run.distance+run.correct*10+run.bonus;while(run.worldX>=nextSpawn-spawnLead())spawn();world=world.filter(o=>o.x-run.worldX>-150);world.forEach(o=>{if(o.type==='answer'){o.platformY=groundY()-14;if(!o.done)o.fade=Math.min(1,o.fade+dt*2)}});collision(previousBottom,previousPlayerX,previousY,previousWorldX);run.score=run.distance+run.correct*10+run.bonus;
