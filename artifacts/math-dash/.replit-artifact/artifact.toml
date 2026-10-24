@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Math Dash"
+description = "A single-page math platform game where players sprint through a side-scrolling level, solve answer gates, and dodge hazards. Built to play on desktop and mobile."
+version = "1.0.0"
+id = "artifacts/math-dash"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25587
+
+[services.development]
+run = "pnpm --filter @workspace/math-dash run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/math-dash", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/math-dash/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25587"
+BASE_PATH = "/"
