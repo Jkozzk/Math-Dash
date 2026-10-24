@@ -67,7 +67,7 @@ button:focus-visible{outline:3px solid var(--coral);outline-offset:3px}
       <button type="button" data-control="jump" aria-label="Jump">↑</button>
     </div>
   </section>
-  <footer class="bottom"><div class="guide"><div class="guide-item"><span class="key">←</span><span class="key">→</span><span>Move</span></div><div class="guide-item"><span class="key">Space</span><span>Jump higher if held</span></div><div class="guide-item"><span class="key">↓</span><span>Duck</span></div></div><div class="hint-note">Choose an answer block to score.<br>Miss one? Keep moving.</div></footer>
+  <footer class="bottom"><div class="guide"><div class="guide-item"><span class="key">←</span><span class="key">→</span><span>Move</span></div><div class="guide-item"><span class="key">Space</span><span>Jump higher if held</span></div><div class="guide-item"><span class="key">↓</span><span>Duck</span></div></div><div class="hint-note">Land on the correct answer pad to score.<br>Miss one? Keep moving.</div></footer>
   <p class="sr" id="announcement" aria-live="polite"></p>
 </main>
 <script>
@@ -96,13 +96,17 @@ window.addEventListener('keyup',e=>setKey(e,false));window.addEventListener('blu
 document.querySelectorAll('[data-control]').forEach(b=>{const k=b.dataset.control,press=e=>{e.preventDefault();b.classList.add('pressed');if(k==='jump'){if(state==='running'&&player.onGround){player.vy=-CFG.jump;player.onGround=false;setFace('jump')}input.jump=true}else input[k]=true},release=e=>{e.preventDefault();b.classList.remove('pressed');if(k==='jump')input.jump=false;else input[k]=false};b.addEventListener('pointerdown',press);b.addEventListener('pointerup',release);b.addEventListener('pointercancel',release);b.addEventListener('lostpointercapture',release)});
 /* LEVEL GENERATION */
 function spawnLead(){return Math.max(W+240,760)}
+function answerMetrics(o){
+ const choiceWidth=o?.choiceWidth??clamp(W*.18,100,170),choiceHeight=o?.choiceHeight??52,gap=o?.choiceGap??clamp(W*.04,18,36),pad=o?.choicePad??18;
+ return {choiceWidth,choiceHeight,gap,pad,width:pad*2+choiceWidth*2+gap}
+}
 function makeQuestion(){let d=run.distance,a,b,op,ans,txt;
 if(d<500){a=1+Math.floor(rand()*9);b=1+Math.floor(rand()*9);op=rand()<.52?'+':'−';if(op==='−'&&a<b)[a,b]=[b,a];ans=op==='+'?a+b:a-b}
 else if(d<1500){if(rand()<.65){a=2+Math.floor(rand()*9);b=2+Math.floor(rand()*9);op='×';ans=a*b}else{b=2+Math.floor(rand()*9);ans=2+Math.floor(rand()*10);a=b*ans;op='÷'}}
 else if(d<3000){let mode=Math.floor(rand()*4);if(mode<2){a=11+Math.floor(rand()*19);b=11+Math.floor(rand()*19);op='×';ans=a*b}else if(mode===2){a=4+Math.floor(rand()*16);op='²';ans=a*a}else{a=3+Math.floor(rand()*16);b=4+Math.floor(rand()*12);op='−';if(rand()<.5)[a,b]=[b,a];ans=a-b}}
 else{let mode=Math.floor(rand()*5);if(mode===0){a=12+Math.floor(rand()*29);b=12+Math.floor(rand()*29);op='×';ans=a*b}else if(mode===1){ans=4+Math.floor(rand()*15);a=ans*ans;op='√';txt='√'+a}else if(mode===2){let pct=[10,20,25,50][Math.floor(rand()*4)];b=[40,60,80,100][Math.floor(rand()*4)];ans=b*pct/100;op='%';txt=pct+'% of '+b}else if(mode===3){a=rand()<.5?-1:1;a*=3+Math.floor(rand()*14);b=2+Math.floor(rand()*11);op='+';ans=a+b}else{a=12+Math.floor(rand()*30);b=2+Math.floor(rand()*10);op='−';ans=a-b}}
 return {text:txt||`${a} ${op} ${b??''}`.trim(),answer:ans}}
-function addAnswer(x){const q=makeQuestion(),offset=3+Math.floor(rand()*8),wrong=q.answer+(rand()<.5?-1:1)*offset;const correctLeft=rand()<.5;const pair={type:'answer',x,width:W*.48,question:q.text,correct:q.answer,choices:correctLeft?[q.answer,wrong]:[wrong,q.answer],done:false,fade:0,platformY:groundY()-28};world.push(pair);run.answer=pair}
+function addAnswer(x){const q=makeQuestion(),offset=3+Math.floor(rand()*8),wrong=q.answer+(rand()<.5?-1:1)*offset,layout=answerMetrics();const correctLeft=rand()<.5;const pair={type:'answer',x,width:layout.width,choiceWidth:layout.choiceWidth,choiceHeight:layout.choiceHeight,choiceGap:layout.gap,choicePad:layout.pad,question:q.text,correct:q.answer,choices:correctLeft?[q.answer,wrong]:[wrong,q.answer],done:false,fade:0,platformY:groundY()-14};world.push(pair);run.answer=pair}
 function spawn(){const x=nextSpawn;if(run.distance>=run.bossAt){world.push({type:'boss',x,width:90});run.boss={x,stage:0,answers:[],text:''};run.attempts=3;run.bossAt+=2000;makeBossQuestion();nextSpawn=x+600;return}
 const roll=rand();if(roll<.22){world.push({type:'gap',x,width:105+rand()*80})}else if(roll<.41){world.push({type:'spike',x,width:34+rand()*28})}else if(roll<.54){world.push({type:'block',x,width:36,height:35+rand()*20})}else if(roll<.68){let lift=38+rand()*46;world.push({type:'platform',x,width:115+rand()*90,lift})}else if(roll<.74){world.push({type:'beam',x,width:76+rand()*30})}else if(roll<.78){world.push({type:'power',power:rand()<.5?'hint':'slow',x,y:groundY()-75})}
 if(run.distance>100&&run.distance-run.lastAnswer>CFG.answerEvery){addAnswer(x+280);run.lastAnswer=run.distance}
@@ -115,45 +119,84 @@ function setFace(f){if(player.face===f)return;player.oldFace=player.face;player.
 function die(){if(state!=='running')return;state='over';run.crash=.45;setFace('crash');saveBest();$('question').classList.remove('show');$('announcement').textContent='Run ended. Score '+run.score;showEnd();if(run.crash>0){last=performance.now();raf=requestAnimationFrame(loop)}}
 function saveBest(){if(run.score>run.best){run.best=run.score;try{localStorage.setItem('mathDashBest',String(run.best))}catch(_){}}}
  function showEnd(){const panel=document.createElement('div');panel.className='intro';panel.id='endPanel';panel.innerHTML='<p class="eyebrow">Nice run. One more?</p><h1>Keep<br>going.</h1><p class="end-score">Final score: '+run.score+'</p><p class="best-line">Distance: '+run.distance+' m<br>Best score: '+run.best+'</p><p class="intro-hint">Press Space to retry</p><button class="primary" id="retry">Run it back <span aria-hidden="true">→</span></button>';const overlay=$('overlay');overlay.replaceChildren(panel);overlay.classList.remove('hidden');stage.classList.add('is-over');$('retry').addEventListener('click',startGame)}
-function collision(previousBottom){
-const gy=groundY(),bodyH=player.duck?25:player.h,px=player.x+4,pw=player.w-8,py=player.y+3,ph=bodyH-4;
-let landed=false,landY=Infinity;
-// Answer blocks are one-way landing targets: sides never select an answer.
-for(const o of world){if(o.type!=='answer'||o.done)continue;const sx=o.x-run.worldX,bw=69,gap=12,left=sx+o.width/2-bw-gap/2,top=o.platformY-52;
- for(let i=0;i<2;i++){const bx=left+i*(bw+gap);if(player.vy>=0&&previousBottom<=top+5&&player.y+bodyH>=top&&px+pw>bx&&px<bx+bw){if(o.choices[i]===o.correct){o.done=true;run.answer=null;run.correct++;run.flash=.24;run.ripple=.5;setFace('happy');announce('Correct answer. Ten points.')}else die();player.y=top-bodyH;player.vy=0;player.onGround=true;player.supportY=top;landed=true;landY=top;break}}
-}
-if(!landed){
- for(const o of world){const sx=o.x-run.worldX;if(sx>W+150||sx+o.width<player.x-50)continue;
-  if(o.type==='platform'){let top=gy-o.lift;if(player.vy>=0&&previousBottom<=top+4&&player.y+bodyH>=top&&px+pw>sx&&px<sx+o.width){player.y=top-bodyH;player.vy=0;player.onGround=true;player.supportY=top;landed=true;landY=top;break}}
+function collision(previousBottom,previousPlayerX,previousY,previousWorldX){
+ const gy=groundY(),bodyH=player.duck?25:player.h,bodyW=player.w-8,pw=bodyW,px=player.x+4,py=player.y+3,ph=bodyH-4,currentBottom=player.y+bodyH;
+ let landed=false;
+ function axisTimes(start,end,size,extent){
+  const delta=end-start;
+  if(Math.abs(delta)<1e-8)return start+size>0&&start<extent?[-Infinity,Infinity]:null;
+  const a=(-size-start)/delta,b=(extent-start)/delta;
+  return [Math.min(a,b),Math.max(a,b)];
  }
+ function sweptHit(o,offset,width,top,height){
+  const x0=previousPlayerX+4-(o.x+offset-previousWorldX),x1=px-(o.x+offset-run.worldX);
+  const y0=previousY+3-top,y1=py-top,xTimes=axisTimes(x0,x1,bodyW,width),yTimes=axisTimes(y0,y1,ph,height);
+  return !!xTimes&&!!yTimes&&Math.max(0,xTimes[0],yTimes[0])<=Math.min(1,xTimes[1],yTimes[1]);
+ }
+ function landingTime(top){
+  const fall=currentBottom-previousBottom;
+  if(player.vy<0||fall<=0||previousBottom>top+1||currentBottom<top)return null;
+  return clamp((top-previousBottom)/fall,0,1);
+ }
+ function overlapsAt(t,o,offset,width){
+  const playerLeft=previousPlayerX+(player.x-previousPlayerX)*t+4;
+  const worldAt=previousWorldX+(run.worldX-previousWorldX)*t;
+  const objectLeft=o.x+offset-worldAt;
+  return playerLeft+pw>objectLeft&&playerLeft<objectLeft+width;
+ }
+ // Landing resolves only at the block top, using the exact horizontal position at impact.
+ for(const o of world){
+  if(o.type!=='answer')continue;
+  const m=answerMetrics(o);
+  if(o.done){const t=landingTime(o.platformY);if(t!==null&&overlapsAt(t,o,0,o.width)){player.y=o.platformY-bodyH;player.vy=0;player.onGround=true;player.supportY=o.platformY;landed=true;break}continue}
+  const top=o.platformY-m.choiceHeight,t=landingTime(top);
+  if(t===null)continue;
+  for(let i=0;i<2;i++){
+   const offset=m.pad+i*(m.choiceWidth+m.gap);
+   if(!overlapsAt(t,o,offset,m.choiceWidth))continue;
+   const correct=o.choices[i]===o.correct;
+   player.y=top-bodyH;player.vy=0;player.onGround=true;player.supportY=top;landed=true;
+   if(correct){o.done=true;run.answer=null;run.correct++;run.flash=.24;run.ripple=.5;setFace('happy');announce('Correct answer. Ten points.')}
+   else die();
+   break;
+  }
+  if(landed)break;
+ }
+ if(state!=='running')return;
+ if(!landed){
+  for(const o of world){
+   if(o.type!=='platform')continue;
+   const top=gy-o.lift,t=landingTime(top);
+   if(t!==null&&overlapsAt(t,o,0,o.width)){player.y=top-bodyH;player.vy=0;player.onGround=true;player.supportY=top;landed=true;break}
+  }
+ }
+ const groundGap=world.some(o=>o.type==='gap'&&player.x+player.w*.5>o.x-run.worldX&&player.x+player.w*.5<o.x+o.width-run.worldX);
+ if(!landed&&player.vy>=0&&previousBottom<=gy+4&&currentBottom>=gy&&!groundGap){player.y=gy-bodyH;player.vy=0;player.onGround=true;player.supportY=gy;landed=true}
+ for(const o of world){
+  if(o.type==='spike'&&sweptHit(o,0,o.width,gy-30,30))die();
+  if(o.type==='block'&&sweptHit(o,0,o.width,gy-o.height,o.height))die();
+  if(o.type==='beam'&&sweptHit(o,0,o.width,gy-43,16))die();
+  if(o.type==='power'&&!o.collected&&sweptHit(o,0,24,o.y,24)){o.collected=true;if(o.power==='hint')run.hint=3;else run.slow=5;run.ripple=.38}
+  if(o.type==='boss'&&!o.cleared&&sweptHit(o,0,o.width,gy-128,128)){
+   if(!o.open){o.open=true;o.stage=0}
+   if(o.open&&sweptHit(o,0,o.width,gy-74,74)&&(input.left||input.right)){
+    const pick=input.left?1:0;
+    if(run.boss.answers[pick]===run.boss.correct){run.bonus+=75;run.flash=.35;run.ripple=.5;o.open=false;o.cleared=true;announce('Gate solved. Bonus points.');run.boss=null}
+    else{run.attempts--;run.boss.wrong++;run.boss.scale*=.78;run.flash=.12;if(run.attempts<=0)die();else announce('Not quite. '+run.attempts+' tries left.');input.left=input.right=false}
+   }
+  }
+ }
+ if(groundGap&&currentBottom>=gy&&player.supportY===gy)player.onGround=false;
+ if(player.y>H+40)die();
 }
-const groundGap=world.some(o=>o.type==='gap'&&player.x+player.w*.5>o.x-run.worldX&&player.x+player.w*.5<o.x+o.width-run.worldX);
-if(!landed&&player.vy>=0&&previousBottom<=gy+4&&player.y+bodyH>=gy&&!groundGap){player.y=gy-bodyH;player.vy=0;player.onGround=true;player.supportY=gy;landed=true;landY=gy}
-if(!landed&&player.onGround&&Math.abs(player.y+bodyH-player.supportY)<3){
- let supported=player.supportY===gy&&!groundGap;
- if(!supported)supported=world.some(o=>{let sx=o.x-run.worldX;return o.type==='platform'&&Math.abs(gy-o.lift-player.supportY)<2&&px+pw>sx&&px<sx+o.width});
- if(!supported)supported=world.some(o=>{if(o.type!=='answer'||!o.done)return false;let sx=o.x-run.worldX,bw=69,left=sx+o.width/2-bw-6;return Math.abs(o.platformY-52-player.supportY)<2&&px+pw>left&&px<left+2*bw+12});
- if(!supported){player.onGround=false;player.vy=Math.max(1,player.vy)}
-}
-for(const o of world){let sx=o.x-run.worldX;if(sx>W+150||sx+o.width<player.x-50)continue;
- if(o.type==='spike'&&px+pw>sx&&px<sx+o.width&&py+ph>gy-30)die();
- if(o.type==='block'&&px+pw>sx&&px<sx+o.width&&py+ph>gy-o.height)die();
- if(o.type==='beam'&&px+pw>sx&&px<sx+o.width&&py+ph>gy-43&&py<gy-27)die();
- if(o.type==='power'&&!o.collected&&px+pw>sx&&px<sx+24&&py+ph>o.y&&py<o.y+24){o.collected=true;if(o.power==='hint')run.hint=3;else run.slow=5;run.ripple=.38}
- if(o.type==='boss'&&o.open&&sx<player.x+player.w&&sx+o.width>player.x&&py+ph>gy-74){let pick=input.left?1:0;if(input.left||input.right){if(run.boss.answers[pick]===run.boss.correct){run.bonus+=75;run.flash=.35;run.ripple=.5;o.open=false;o.cleared=true;announce('Gate solved. Bonus points.');run.boss=null}else{run.attempts--;run.boss.wrong++;run.boss.scale*=.78;run.flash=.12;if(run.attempts<=0)die();else announce('Not quite. '+run.attempts+' tries left.');input.left=input.right=false}}}
- if(o.type==='boss'&&!o.open&&!o.cleared&&sx<player.x+player.w&&sx+o.width>player.x){o.open=true;o.stage=0}
-}
-if(groundGap&&player.y+bodyH>=gy&&player.supportY===gy)player.onGround=false;
-if(player.y>H+40)die()
-}
-function update(dt){run.elapsed+=dt;const slow=run.slow>0?.48:1;run.slow=Math.max(0,run.slow-dt);run.hint=Math.max(0,run.hint-dt);run.flash=Math.max(0,run.flash-dt);run.ripple=Math.max(0,run.ripple-dt);run.speed=(CFG.baseSpeed+Math.min(175,run.distance*.045))*slow;
+function update(dt){const previousPlayerX=player.x,previousWorldX=run.worldX;run.elapsed+=dt;const slow=run.slow>0?.48:1;run.slow=Math.max(0,run.slow-dt);run.hint=Math.max(0,run.hint-dt);run.flash=Math.max(0,run.flash-dt);run.ripple=Math.max(0,run.ripple-dt);run.speed=(CFG.baseSpeed+Math.min(175,run.distance*.045))*slow;
 const direction=(input.right?1:0)-(input.left?1:0);if(direction)player.vx=clamp(player.vx+direction*CFG.runAccel*dt,-CFG.maxRunSpeed,CFG.maxRunSpeed);else if(player.vx!==0){const reduction=CFG.friction*dt;player.vx=Math.abs(player.vx)<=reduction?0:player.vx-Math.sign(player.vx)*reduction}
 player.x=clamp(player.x+player.vx*dt,18,W*.48);if(player.x<=18||player.x>=W*.48)player.vx=0;
-const oldH=player.duck?25:player.h,feet=player.y+oldH;player.duck=input.duck;if(player.duck)setFace('duck');else if(player.face==='duck')setFace('neutral');const bodyH=player.duck?25:player.h;player.y=feet-bodyH;
+const oldH=player.duck?25:player.h,feet=player.y+oldH;player.duck=input.duck;if(player.duck)setFace('duck');else if(player.face==='duck')setFace('neutral');const bodyH=player.duck?25:player.h;player.y=feet-bodyH;const previousY=player.y;
 if(input.jump&&!player.jumpWasDown&&player.onGround){player.vy=-CFG.jump;player.onGround=false;setFace('jump')}player.jumpWasDown=input.jump;
 if(input.jump&&player.vy<0)player.vy-=CFG.gravity*.48*dt;
 const previousBottom=player.y+bodyH;player.vy+=CFG.gravity*dt;player.y+=player.vy*dt;player.onGround=false;
-run.worldX+=run.speed*dt;run.distance=Math.floor(run.worldX/6);run.score=run.distance+run.correct*10+run.bonus;while(run.worldX>=nextSpawn-spawnLead())spawn();world=world.filter(o=>o.x-run.worldX>-150);world.forEach(o=>{if(o.type==='answer'){o.platformY=groundY()-28;if(!o.done)o.fade=Math.min(1,o.fade+dt*2)}});collision(previousBottom);run.score=run.distance+run.correct*10+run.bonus;
+run.worldX+=run.speed*dt;run.distance=Math.floor(run.worldX/6);run.score=run.distance+run.correct*10+run.bonus;while(run.worldX>=nextSpawn-spawnLead())spawn();world=world.filter(o=>o.x-run.worldX>-150);world.forEach(o=>{if(o.type==='answer'){o.platformY=groundY()-14;if(!o.done)o.fade=Math.min(1,o.fade+dt*2)}});collision(previousBottom,previousPlayerX,previousY,previousWorldX);run.score=run.distance+run.correct*10+run.bonus;
 if(run.answer&&!run.answer.done){$('question').classList.add('show');$('questionText').textContent=run.answer.question}else{$('question').classList.remove('show')}
 if(run.boss&&!world.some(o=>o.type==='boss'&&!o.cleared))run.boss=null
 updateHud()}
@@ -181,7 +224,7 @@ drawPlayer(p,gy);
 if(run.flash>0){ctx.fillStyle=`rgba(247,229,164,${run.flash*1.3})`;ctx.fillRect(0,0,W,H)}
 if(run.ripple>0){ctx.strokeStyle=`rgba(231,110,81,${run.ripple*1.4})`;ctx.lineWidth=2;ctx.beginPath();ctx.arc(player.x+player.w/2,player.y+player.h/2,(1-run.ripple/.5)*42+8,0,Math.PI*2);ctx.stroke()}
 if(state==='over'&&run.crash>0){ctx.fillStyle=`rgba(40,44,43,${Math.max(0,run.crash)*.15})`;ctx.fillRect(0,0,W,H)}}
-function drawAnswer(o,x,gy,p){const bw=69,bh=52,gap=12,left=x+o.width/2-bw-gap/2,top=o.platformY-bh,fade=o.fade||0,scale=.82+.18*fade;ctx.save();ctx.globalAlpha=fade;ctx.translate(x+o.width/2,top+bh/2);ctx.scale(scale,scale);ctx.translate(-(x+o.width/2),-(top+bh/2));rect(x,o.platformY,o.width,12,p.ink);rect(x+5,o.platformY+4,o.width-10,3,p.accent);ctx.textAlign='center';ctx.font='800 16px system-ui';o.choices.forEach((v,i)=>{let bx=left+i*(bw+gap);rect(bx,top,bw,bh,p.block);ctx.strokeStyle=p.ink;ctx.lineWidth=2;ctx.strokeRect(bx,top,bw,bh);if(run.hint>0&&v===o.correct){ctx.strokeStyle=p.accent;ctx.lineWidth=4;ctx.strokeRect(bx-3,top-3,bw+6,bh+6)}ctx.fillStyle=p.ink;ctx.fillText(v,bx+bw/2,top+32)});ctx.restore()}
+function drawAnswer(o,x,gy,p){const m=answerMetrics(o),bw=m.choiceWidth,bh=m.choiceHeight,gap=m.gap,left=x+m.pad,top=o.platformY-bh,fade=o.fade||0,scale=.9+.1*fade;ctx.save();ctx.globalAlpha=fade;ctx.translate(x+o.width/2,top+bh/2);ctx.scale(scale,scale);ctx.translate(-(x+o.width/2),-(top+bh/2));rect(x,o.platformY,o.width,12,p.ink);rect(x+5,o.platformY+4,o.width-10,3,p.accent);ctx.textAlign='center';o.choices.forEach((v,i)=>{const bx=left+i*(bw+gap),label=String(v),fontSize=Math.min(25,Math.max(15,bw/(label.length*.66)));rect(bx,top,bw,bh,p.block);ctx.strokeStyle=p.ink;ctx.lineWidth=2;ctx.strokeRect(bx,top,bw,bh);if(run.hint>0&&v===o.correct){ctx.strokeStyle=p.accent;ctx.lineWidth=4;ctx.strokeRect(bx-3,top-3,bw+6,bh+6)}ctx.fillStyle=p.ink;ctx.font=`800 ${fontSize}px system-ui`;ctx.fillText(label,bx+bw/2,top+bh/2+fontSize*.35)});ctx.restore()}
 function drawExpression(face,x,y,w,h,p,alpha){if(alpha<=0)return;ctx.save();ctx.globalAlpha*=alpha;ctx.fillStyle=p.ink;
 if(face==='crash'){ctx.lineWidth=3;ctx.strokeStyle=p.ink;ctx.beginPath();ctx.moveTo(x+8,y+10);ctx.lineTo(x+14,y+16);ctx.moveTo(x+14,y+10);ctx.lineTo(x+8,y+16);ctx.moveTo(x+w-14,y+10);ctx.lineTo(x+w-8,y+16);ctx.moveTo(x+w-8,y+10);ctx.lineTo(x+w-14,y+16);ctx.stroke();ctx.beginPath();ctx.arc(x+w/2,y+h-10,5,Math.PI,0);ctx.stroke()}
 else if(face==='jump'){ctx.fillStyle=p.block;ctx.beginPath();ctx.ellipse(x+w*.36,y+h*.34,4,6,0,0,Math.PI*2);ctx.ellipse(x+w*.72,y+h*.34,4,6,0,0,Math.PI*2);ctx.fill();ctx.fillStyle=p.ink;ctx.fillRect(x+w*.3,y+h*.62,w*.42,3)}
@@ -193,7 +236,7 @@ function drawPlayer(p,gy){const h=player.duck?25:player.h,w=player.duck?38:playe
 /* FACE + UI + LOOP */
 function loop(now){if(state!=='running'){if(state==='over'&&run.crash>0){let dt=Math.min(.05,(now-last)/1000);last=now;run.crash=Math.max(0,run.crash-dt);player.faceMix=Math.min(1,player.faceMix+dt/.16);render();if(run.crash>0)raf=requestAnimationFrame(loop)}return}
 let dt=Math.min(.04,(now-last)/1000||0);last=now;player.faceMix=Math.min(1,player.faceMix+dt/.16);update(dt);render();if(state==='running')raf=requestAnimationFrame(loop)}
-function drawTitle(){const p=palette(),gy=groundY();ctx.clearRect(0,0,W,H);ctx.fillStyle=p.sky;ctx.fillRect(0,0,W,H);ctx.fillStyle=p.far;ctx.fillRect(0,gy-35,W,35);ctx.fillStyle=p.ground;ctx.fillRect(0,gy,W,H-gy);ctx.fillStyle=p.accent;ctx.fillRect(W*.23,gy-42,30,42);ctx.fillStyle=p.ink;ctx.fillRect(W*.23+8,gy-29,4,4);ctx.fillRect(W*.23+19,gy-29,4,4);ctx.fillStyle=p.block;ctx.fillRect(W*.62,gy-96,69,52);ctx.fillRect(W*.62+81,gy-96,69,52);ctx.strokeStyle=p.ink;ctx.lineWidth=2;ctx.strokeRect(W*.62,gy-96,69,52);ctx.strokeRect(W*.62+81,gy-96,69,52);ctx.fillStyle=p.ink;ctx.textAlign='center';ctx.font='bold 16px system-ui';ctx.fillText('8',W*.62+34,gy-64);ctx.fillText('9',W*.62+115,gy-64);ctx.fillStyle=p.accent;ctx.font='bold 24px system-ui';ctx.fillText('4 + 4 = ?',W*.69,gy-125)}
+function drawTitle(){const p=palette(),gy=groundY(),m=answerMetrics(),sampleX=Math.max(10,Math.min(W*.62,W-m.width-12)),sample={width:m.width,choiceWidth:m.choiceWidth,choiceHeight:m.choiceHeight,choiceGap:m.gap,choicePad:m.pad,platformY:gy-14,choices:[8,9],fade:1};ctx.clearRect(0,0,W,H);ctx.fillStyle=p.sky;ctx.fillRect(0,0,W,H);ctx.fillStyle=p.far;ctx.fillRect(0,gy-35,W,35);ctx.fillStyle=p.ground;ctx.fillRect(0,gy,W,H-gy);ctx.fillStyle=p.accent;ctx.fillRect(W*.23,gy-42,30,42);ctx.fillStyle=p.ink;ctx.fillRect(W*.23+8,gy-29,4,4);ctx.fillRect(W*.23+19,gy-29,4,4);drawAnswer(sample,sampleX,gy,p);ctx.fillStyle=p.accent;ctx.textAlign='center';ctx.font='bold 24px system-ui';ctx.fillText('4 + 4 = ?',sampleX+m.width/2,gy-96)}
 function idle(){resize();drawTitle();updateHud()}
 $('start').addEventListener('click',startGame);window.addEventListener('resize',idle);idle();
 })();
