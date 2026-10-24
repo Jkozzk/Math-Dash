@@ -70,12 +70,13 @@ button:focus-visible{outline:3px solid var(--coral);outline-offset:3px}
   <footer class="bottom"><div class="guide"><div class="guide-item"><span class="key">←</span><span class="key">→</span><span>Move</span></div><div class="guide-item"><span class="key">Space</span><span>Jump higher if held</span></div><div class="guide-item"><span class="key">↓</span><span>Duck</span></div></div><div class="hint-note">Land on the correct answer pad to score.<br>Miss one? Keep moving.</div></footer>
   <p class="sr" id="announcement" aria-live="polite"></p>
 </main>
-<script>
+<script type="module">
+import { MOVEMENT_LIMITS, isOverGap, shouldLandOnGround, losesGroundSupportAtGap, fellBelowStage, sweptAabbHit, sweptHazardHit } from './collision.js';
 /* CONFIG */
 (()=>{'use strict';
 const canvas=document.getElementById('game'),ctx=canvas.getContext('2d'),stage=document.querySelector('.stage');
 const $=id=>document.getElementById(id);
-const CFG={gravity:1750,jump:630,baseSpeed:245,playerX:.22,playerW:30,playerH:42,runAccel:1050,friction:1250,maxRunSpeed:260,answerEvery:490};
+const CFG={gravity:1750,jump:630,baseSpeed:MOVEMENT_LIMITS.baseScrollSpeed,playerX:.22,playerW:30,playerH:42,runAccel:1050,friction:1250,maxRunSpeed:MOVEMENT_LIMITS.maxRunSpeed,answerEvery:490};
 const palettes=[{sky:'#e9dfca',far:'#d6c6a8',ground:'#303431',accent:'#e76e51',block:'#f8f3e9',ink:'#282c2b'},
 {sky:'#aab6bd',far:'#899aa2',ground:'#343e43',accent:'#e9a66c',block:'#e6e7df',ink:'#30393c'},
 {sky:'#182d38',far:'#274954',ground:'#13282e',accent:'#75c6b1',block:'#d3e5dc',ink:'#172c32'}];
@@ -119,19 +120,11 @@ function setFace(f){if(player.face===f)return;player.oldFace=player.face;player.
 function die(){if(state!=='running')return;state='over';run.crash=.45;setFace('crash');saveBest();$('question').classList.remove('show');$('announcement').textContent='Run ended. Score '+run.score;showEnd();if(run.crash>0){last=performance.now();raf=requestAnimationFrame(loop)}}
 function saveBest(){if(run.score>run.best){run.best=run.score;try{localStorage.setItem('mathDashBest',String(run.best))}catch(_){}}}
  function showEnd(){const panel=document.createElement('div');panel.className='intro';panel.id='endPanel';panel.innerHTML='<p class="eyebrow">Nice run. One more?</p><h1>Keep<br>going.</h1><p class="end-score">Final score: '+run.score+'</p><p class="best-line">Distance: '+run.distance+' m<br>Best score: '+run.best+'</p><p class="intro-hint">Press Space to retry</p><button class="primary" id="retry">Run it back <span aria-hidden="true">→</span></button>';const overlay=$('overlay');overlay.replaceChildren(panel);overlay.classList.remove('hidden');stage.classList.add('is-over');$('retry').addEventListener('click',startGame)}
-function collision(previousBottom,previousPlayerX,previousY,previousWorldX){
- const gy=groundY(),bodyH=player.duck?25:player.h,bodyW=player.w-8,pw=bodyW,px=player.x+4,py=player.y+3,ph=bodyH-4,currentBottom=player.y+bodyH;
+ function collision(previousBottom,previousPlayerX,previousY,previousWorldX){
+  const gy=groundY(),bodyH=player.duck?25:player.h,pw=player.w-8,currentBottom=player.y+bodyH;
  let landed=false;
- function axisTimes(start,end,size,extent){
-  const delta=end-start;
-  if(Math.abs(delta)<1e-8)return start+size>0&&start<extent?[-Infinity,Infinity]:null;
-  const a=(-size-start)/delta,b=(extent-start)/delta;
-  return [Math.min(a,b),Math.max(a,b)];
- }
- function sweptHit(o,offset,width,top,height){
-  const x0=previousPlayerX+4-(o.x+offset-previousWorldX),x1=px-(o.x+offset-run.worldX);
-  const y0=previousY+3-top,y1=py-top,xTimes=axisTimes(x0,x1,bodyW,width),yTimes=axisTimes(y0,y1,ph,height);
-  return !!xTimes&&!!yTimes&&Math.max(0,xTimes[0],yTimes[0])<=Math.min(1,xTimes[1],yTimes[1]);
+  function sweptHit(o,offset,width,top,height){
+   return sweptAabbHit({playerStartX:previousPlayerX,playerEndX:player.x,playerStartY:previousY,playerEndY:player.y,playerWidth:player.w,playerHeight:bodyH,worldStartX:previousWorldX,worldEndX:run.worldX,hazardX:o.x,hazardOffset:offset,hazardWidth:width,hazardY:top,hazardHeight:height});
  }
  function landingTime(top){
   const fall=currentBottom-previousBottom;
@@ -170,12 +163,10 @@ function collision(previousBottom,previousPlayerX,previousY,previousWorldX){
    if(t!==null&&overlapsAt(t,o,0,o.width)){player.y=top-bodyH;player.vy=0;player.onGround=true;player.supportY=top;landed=true;break}
   }
  }
- const groundGap=world.some(o=>o.type==='gap'&&player.x+player.w*.5>o.x-run.worldX&&player.x+player.w*.5<o.x+o.width-run.worldX);
- if(!landed&&player.vy>=0&&previousBottom<=gy+4&&currentBottom>=gy&&!groundGap){player.y=gy-bodyH;player.vy=0;player.onGround=true;player.supportY=gy;landed=true}
+  const groundGap=world.some(o=>o.type==='gap'&&isOverGap(player.x+player.w*.5,o.x,o.width,run.worldX));
+  if(shouldLandOnGround({landed,verticalVelocity:player.vy,previousBottom,currentBottom,groundY:gy,overGap:groundGap})){player.y=gy-bodyH;player.vy=0;player.onGround=true;player.supportY=gy;landed=true}
  for(const o of world){
-  if(o.type==='spike'&&sweptHit(o,0,o.width,gy-30,30))die();
-  if(o.type==='block'&&sweptHit(o,0,o.width,gy-o.height,o.height))die();
-  if(o.type==='beam'&&sweptHit(o,0,o.width,gy-43,16))die();
+   if((o.type==='spike'||o.type==='block'||o.type==='beam')&&sweptHazardHit({type:o.type,hazard:o,groundY:gy,playerStartX:previousPlayerX,playerEndX:player.x,playerStartY:previousY,playerEndY:player.y,playerWidth:player.w,playerHeight:bodyH,worldStartX:previousWorldX,worldEndX:run.worldX}))die();
   if(o.type==='power'&&!o.collected&&sweptHit(o,0,24,o.y,24)){o.collected=true;if(o.power==='hint')run.hint=3;else run.slow=5;run.ripple=.38}
   if(o.type==='boss'&&!o.cleared&&sweptHit(o,0,o.width,gy-128,128)){
    if(!o.open){o.open=true;o.stage=0}
@@ -186,10 +177,10 @@ function collision(previousBottom,previousPlayerX,previousY,previousWorldX){
    }
   }
  }
- if(groundGap&&currentBottom>=gy&&player.supportY===gy)player.onGround=false;
- if(player.y>H+40)die();
+  if(losesGroundSupportAtGap({overGap:groundGap,currentBottom,groundY:gy,supportY:player.supportY}))player.onGround=false;
+  if(fellBelowStage(player.y,H))die();
 }
-function update(dt){const previousPlayerX=player.x,previousWorldX=run.worldX;run.elapsed+=dt;const slow=run.slow>0?.48:1;run.slow=Math.max(0,run.slow-dt);run.hint=Math.max(0,run.hint-dt);run.flash=Math.max(0,run.flash-dt);run.ripple=Math.max(0,run.ripple-dt);run.speed=(CFG.baseSpeed+Math.min(175,run.distance*.045))*slow;
+ function update(dt){const previousPlayerX=player.x,previousWorldX=run.worldX;run.elapsed+=dt;const slow=run.slow>0?.48:1;run.slow=Math.max(0,run.slow-dt);run.hint=Math.max(0,run.hint-dt);run.flash=Math.max(0,run.flash-dt);run.ripple=Math.max(0,run.ripple-dt);run.speed=(CFG.baseSpeed+Math.min(MOVEMENT_LIMITS.maxScrollBonus,run.distance*.045))*slow;
 const direction=(input.right?1:0)-(input.left?1:0);if(direction)player.vx=clamp(player.vx+direction*CFG.runAccel*dt,-CFG.maxRunSpeed,CFG.maxRunSpeed);else if(player.vx!==0){const reduction=CFG.friction*dt;player.vx=Math.abs(player.vx)<=reduction?0:player.vx-Math.sign(player.vx)*reduction}
 player.x=clamp(player.x+player.vx*dt,18,W*.48);if(player.x<=18||player.x>=W*.48)player.vx=0;
 const oldH=player.duck?25:player.h,feet=player.y+oldH;player.duck=input.duck;if(player.duck)setFace('duck');else if(player.face==='duck')setFace('neutral');const bodyH=player.duck?25:player.h;player.y=feet-bodyH;const previousY=player.y;
@@ -235,7 +226,7 @@ ctx.restore()}
 function drawPlayer(p,gy){const h=player.duck?25:player.h,w=player.duck?38:player.w,x=player.x,y=player.y;const fade=state==='over'?clamp(run.crash/.45,0,1):1;ctx.save();ctx.globalAlpha=fade;ctx.fillStyle=p.accent;ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,Math.min(9,h/2));else ctx.rect(x,y,w,h);ctx.fill();drawExpression(player.oldFace,x,y,w,h,p,1-player.faceMix);drawExpression(player.face,x,y,w,h,p,player.faceMix);ctx.restore()}
 /* FACE + UI + LOOP */
 function loop(now){if(state!=='running'){if(state==='over'&&run.crash>0){let dt=Math.min(.05,(now-last)/1000);last=now;run.crash=Math.max(0,run.crash-dt);player.faceMix=Math.min(1,player.faceMix+dt/.16);render();if(run.crash>0)raf=requestAnimationFrame(loop)}return}
-let dt=Math.min(.04,(now-last)/1000||0);last=now;player.faceMix=Math.min(1,player.faceMix+dt/.16);update(dt);render();if(state==='running')raf=requestAnimationFrame(loop)}
+ let dt=Math.min(MOVEMENT_LIMITS.maxFrameSeconds,(now-last)/1000||0);last=now;player.faceMix=Math.min(1,player.faceMix+dt/.16);update(dt);render();if(state==='running')raf=requestAnimationFrame(loop)}
 function drawTitle(){const p=palette(),gy=groundY(),m=answerMetrics(),sampleX=Math.max(10,Math.min(W*.62,W-m.width-12)),sample={width:m.width,choiceWidth:m.choiceWidth,choiceHeight:m.choiceHeight,choiceGap:m.gap,choicePad:m.pad,platformY:gy-14,choices:[8,9],fade:1};ctx.clearRect(0,0,W,H);ctx.fillStyle=p.sky;ctx.fillRect(0,0,W,H);ctx.fillStyle=p.far;ctx.fillRect(0,gy-35,W,35);ctx.fillStyle=p.ground;ctx.fillRect(0,gy,W,H-gy);ctx.fillStyle=p.accent;ctx.fillRect(W*.23,gy-42,30,42);ctx.fillStyle=p.ink;ctx.fillRect(W*.23+8,gy-29,4,4);ctx.fillRect(W*.23+19,gy-29,4,4);drawAnswer(sample,sampleX,gy,p);ctx.fillStyle=p.accent;ctx.textAlign='center';ctx.font='bold 24px system-ui';ctx.fillText('4 + 4 = ?',sampleX+m.width/2,gy-96)}
 function idle(){resize();drawTitle();updateHud()}
 $('start').addEventListener('click',startGame);window.addEventListener('resize',idle);idle();
